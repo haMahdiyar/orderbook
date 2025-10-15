@@ -306,11 +306,8 @@ def cancel(update: Update, context: CallbackContext) -> int:
 def main() -> None:
     pass
 
-if "VERCEL" not in os.environ:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    updater = Updater(os.getenv("BOT_TOKEN"))
-    dispatcher = updater.dispatcher
-
+def setup_handlers(dispatcher):
+    """Setup all handlers for the bot"""
     sell_conv_handler = ConversationHandler(
         entry_points=[CommandHandler('sell', sell_start)],
         states={
@@ -328,6 +325,12 @@ if "VERCEL" not in os.environ:
     dispatcher.add_handler(CommandHandler("myorders", my_orders))
     dispatcher.add_handler(CallbackQueryHandler(handle_button_clicks))
 
+if "VERCEL" not in os.environ:
+    # Local development mode
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    updater = Updater(os.getenv("BOT_TOKEN"))
+    dispatcher = updater.dispatcher
+    setup_handlers(dispatcher)
     print("Bot is polling locally...")
     updater.start_polling()
     updater.idle()
