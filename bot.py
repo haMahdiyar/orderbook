@@ -223,16 +223,23 @@ def handle_button_clicks(update: Update, context: CallbackContext) -> None:
                 f"🔔 A buyer was found for your order!\n\n"
                 f"🔸 Order: Offer `{ao:,.0f} {aso}` for `{ar:,.0f} {asr}`\n"
                 f"👤 Buyer's Username: @{buyer.username}\n\n"
-                f"Do you confirm this transaction?"
+                f"Do you confirm this deal?"
             )
             keyboard = [[
                 InlineKeyboardButton("✅ Confirm", callback_data=f"confirm_{order_id}_{buyer.id}"),
                 InlineKeyboardButton("❌ Reject", callback_data=f"reject_{order_id}_{buyer.id}")
             ]]
             context.bot.send_message(seller_id, text_to_seller, reply_markup=InlineKeyboardMarkup(keyboard))
-            query.edit_message_text(f"Your request for order #{order_id} has been sent to the seller. Please wait for confirmation.")
+            query.edit_message_text(
+                f"✅ Your purchase request has been sent!\n\n"
+                f"📋 Order #{order_id}\n"
+                f"🔹 You want: {ao:,.0f} {aso}\n"
+                f"🔸 You will pay: {ar:,.0f} {asr}\n\n"
+                f"⏳ Please wait for the seller to confirm or reject your request.\n"
+                f"You will be notified as soon as they respond."
+            )
         else:
-            query.edit_message_text("This order is no longer available.")
+            query.edit_message_text("❌ This order is no longer available.")
 
     elif action == "confirm":
         order_id, buyer_id = map(int, data.split('_'))
@@ -244,9 +251,9 @@ def handle_button_clicks(update: Update, context: CallbackContext) -> None:
             seller_username = seller_username_tuple[0]
             conn.commit()
             buyer_info = context.bot.get_chat(buyer_id)
-            query.edit_message_text(f"✅ Transaction confirmed. Buyer's info (@{buyer_info.username}) sent.\nThis order is now closed.")
+            query.edit_message_text(f"✅ Deal confirmed. This order is now closed.")
             context.bot.send_message(query.from_user.id, f"👤 Buyer's Username: @{buyer_info.username}")
-            context.bot.send_message(buyer_id, f"✅ The seller ({seller_username}) has confirmed your transaction.\n👤 Seller's Username: {seller_username}")
+            context.bot.send_message(buyer_id, f"✅ The seller has confirmed your deal.\n👤 Seller's Username: {seller_username}")
         else:
             conn.rollback()
             query.edit_message_text("Error: Order could not be confirmed.")
