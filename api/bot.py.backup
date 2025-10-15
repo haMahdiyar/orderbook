@@ -1,20 +1,17 @@
 import os
+import json
 import logging
 from dotenv import load_dotenv
 import psycopg2
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-    ConversationHandler,
-)
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler, ContextTypes
+from http.server import BaseHTTPRequestHandler
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
+
+# Set environment variable for Vercel
+os.environ["VERCEL"] = "1"
 
 # --- Database Connection ---
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -297,40 +294,66 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     return ConversationHandler.END
 
+# Initialize bot
+bot = Bot(token=os.getenv("BOT_TOKEN"))
 
-# --- Main Application Setup ---
-def main() -> None:
-    pass
+# Create application
+application = Application.builder().token(os.getenv("BOT_TOKEN")).build()
 
-def setup_handlers(application):
-    """Setup all handlers for the bot"""
-    sell_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('sell', sell_start)],
-        states={
-            OFFERED_ASSET: [CallbackQueryHandler(received_offered_asset)],
-            OFFERED_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_offered_amount)],
-            REQUESTED_ASSET: [CallbackQueryHandler(received_requested_asset)],
-            REQUESTED_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_requested_amount_and_save)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-    )
+# Add handlers
+sell_conv_handler = ConversationHandler(
+    entry_points=[CommandHandler('sell', sell_start)],
+    states={
+        OFFERED_ASSET: [CallbackQueryHandler(received_offered_asset)],
+        OFFERED_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_offered_amount)],
+        REQUESTED_ASSET: [CallbackQueryHandler(received_requested_asset)],
+        REQUESTED_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_requested_amount_and_save)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel)],
+)
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(sell_conv_handler)
-    application.add_handler(CommandHandler("orders", list_orders))
-    application.add_handler(CommandHandler("myorders", my_orders))
-    application.add_handler(CallbackQueryHandler(handle_button_clicks))
+application.add_handler(CommandHandler("start", start))
+application.add_handler(sell_conv_handler)
+application.add_handler(CommandHandler("orders", list_orders))
+application.add_handler(CommandHandler("myorders", my_orders))
+application.add_handler(CallbackQueryHandler(handle_button_clicks))
 
-if "VERCEL" not in os.environ:
-    # Local development mode
-    import asyncio
-    
-    async def run_bot():
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        application = Application.builder().token(os.getenv("BOT_TOKEN")).build()
-        setup_handlers(application)
-        print("Bot is polling locally...")
-        await application.run_polling()
-    
-    if __name__ == "__main__":
-        asyncio.run(run_bot())
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        try:
+            # Set webhook on first request if not set
+            webhook_url = "https://orderbook-iota.vercel.app/api/bot"
+            current_webhook = bot.get_webhook_info()
+            if current_webhook.url != webhook_url:
+                bot.set_webhook(url=webhook_url)
+            
+            # Read request body
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            
+            # Parse update
+            update_data = json.loads(post_data.decode('utf-8'))
+            update = Update.de_json(update_data, bot)
+            
+            # Process update with application
+            import asyncio
+            asyncio.run(application.process_update(update))
+            
+            # Send response
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'ok'}).encode())
+            
+        except Exception as e:
+            logging.error(f"Error in webhook handler: {e}")
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'status': 'Bot is running'}).encode())
