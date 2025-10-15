@@ -128,19 +128,40 @@ def received_requested_amount_and_save(update: Update, context: CallbackContext)
     return ConversationHandler.END
 
 def list_orders(update: Update, context: CallbackContext) -> None:
-    """Lists all active orders."""
+    """Shows asset selection menu for filtering orders."""
+    keyboard = [
+        [InlineKeyboardButton("Million Toman", callback_data="filter_Million Toman")],
+        [InlineKeyboardButton("Clean USD", callback_data="filter_Clean USD")],
+        [InlineKeyboardButton("Dirty USD", callback_data="filter_Dirty USD")],
+        [InlineKeyboardButton("All Orders", callback_data="filter_All")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text('Please choose which asset you want to see offers for:', reply_markup=reply_markup)
+
+def show_filtered_orders(query, asset_filter):
+    """Shows orders filtered by asset type."""
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, amount_offered, asset_offered, amount_requested, asset_requested FROM orders WHERE status = 'active' ORDER BY created_at DESC")
+    
+    if asset_filter == "All":
+        cur.execute("SELECT id, amount_offered, asset_offered, amount_requested, asset_requested FROM orders WHERE status = 'active' ORDER BY created_at DESC")
+        title = "--- All Active Orders ---"
+    else:
+        cur.execute("SELECT id, amount_offered, asset_offered, amount_requested, asset_requested FROM orders WHERE status = 'active' AND asset_offered = %s ORDER BY created_at DESC", (asset_filter,))
+        title = f"--- Orders Offering {asset_filter} ---"
+    
     orders = cur.fetchall()
     cur.close()
     conn.close()
 
     if not orders:
-        update.message.reply_text('There are currently no active orders.')
+        if asset_filter == "All":
+            query.edit_message_text('There are currently no active orders.')
+        else:
+            query.edit_message_text(f'There are currently no orders offering {asset_filter}.')
         return
 
-    update.message.reply_text('--- List of Active Orders ---')
+    query.edit_message_text(title)
     for order in orders:
         order_id, amount_off, asset_off, amount_req, asset_req = order
         text = (
@@ -149,7 +170,7 @@ def list_orders(update: Update, context: CallbackContext) -> None:
             f"🔸 **Requesting:** `{amount_req:,.0f} {asset_req}`"
         )
         keyboard = [[InlineKeyboardButton("I want this deal", callback_data=f"buy_{order_id}")]]
-        update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 def my_orders(update: Update, context: CallbackContext) -> None:
     """Lists the user's own active orders and provides an option to delete them."""
@@ -177,11 +198,17 @@ def my_orders(update: Update, context: CallbackContext) -> None:
         update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 def handle_button_clicks(update: Update, context: CallbackContext) -> None:
-    """Handles all button clicks (buy, confirm, reject, delete)."""
+    """Handles all button clicks (buy, confirm, reject, delete, filter)."""
     query = update.callback_query
     query.answer()
     
     action, data = query.data.split('_', 1)
+    
+    if action == "filter":
+        # Handle asset filtering for orders
+        asset_filter = data
+        show_filtered_orders(query, asset_filter)
+        return
     
     conn = get_db_connection()
     cur = conn.cursor()
