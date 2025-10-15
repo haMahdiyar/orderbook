@@ -1,10 +1,7 @@
 {
   "functions": {
-    "api/bot.py": {
+    "api/*.py": {
       "runtime": "python3.9"
     }
-  },
-  "env": {
-    "VERCEL": "1"
   }
 }

@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import psycopg2
 from telegram import Update, Bot
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, ConversationHandler
+from http.server import BaseHTTPRequestHandler
 
 # Import all handlers from main bot.py
 import sys
@@ -18,6 +19,9 @@ from bot import (
 
 # Load environment variables
 load_dotenv()
+
+# Set environment variable for Vercel
+os.environ["VERCEL"] = "1"
 
 # Initialize bot
 bot = Bot(token=os.getenv("BOT_TOKEN"))
@@ -43,42 +47,39 @@ dispatcher.add_handler(CommandHandler("orders", list_orders))
 dispatcher.add_handler(CommandHandler("myorders", my_orders))
 dispatcher.add_handler(CallbackQueryHandler(handle_button_clicks))
 
-def handler(request):
-    """Vercel serverless function handler"""
-    try:
-        # Set webhook on first request if not set
-        webhook_url = "https://orderbook-iota.vercel.app/api/bot"
-        current_webhook = bot.get_webhook_info()
-        if current_webhook.url != webhook_url:
-            bot.set_webhook(url=webhook_url)
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        try:
+            # Set webhook on first request if not set
+            webhook_url = "https://orderbook-iota.vercel.app/api/bot"
+            current_webhook = bot.get_webhook_info()
+            if current_webhook.url != webhook_url:
+                bot.set_webhook(url=webhook_url)
             
-        # Parse the request
-        if hasattr(request, 'method'):
-            if request.method == "POST":
-                update = Update.de_json(json.loads(request.body), bot)
-                dispatcher.process_update(update)
-        else:
-            # Vercel request format
-            if request.get('method') == 'POST':
-                body = request.get('body', '{}')
-                if isinstance(body, str):
-                    update_data = json.loads(body)
-                else:
-                    update_data = body
-                update = Update.de_json(update_data, bot)
-                dispatcher.process_update(update)
+            # Read request body
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
             
-        return {
-            'statusCode': 200,
-            'body': json.dumps({'status': 'ok'})
-        }
-    except Exception as e:
-        logging.error(f"Error in handler: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({'error': str(e)})
-        }
+            # Parse update
+            update_data = json.loads(post_data.decode('utf-8'))
+            update = Update.de_json(update_data, bot)
+            dispatcher.process_update(update)
+            
+            # Send response
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'ok'}).encode())
+            
+        except Exception as e:
+            logging.error(f"Error in webhook handler: {e}")
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
 
-# For Vercel
-def app(request):
-    return handler(request)
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'status': 'Bot is running'}).encode())
