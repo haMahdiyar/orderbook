@@ -4,12 +4,12 @@ from dotenv import load_dotenv
 import psycopg2
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Updater,
+    Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
-    Filters,
-    CallbackContext,
+    filters,
+    ContextTypes,
     ConversationHandler,
 )
 
@@ -28,16 +28,16 @@ OFFERED_ASSET, OFFERED_AMOUNT, REQUESTED_ASSET, REQUESTED_AMOUNT = range(4)
 
 # --- Bot Handlers ---
 
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a welcome message."""
-    update.message.reply_text(
+    await update.message.reply_text(
         'Welcome to the Order Book Bot!\n\n'
         'Use /sell to create a new order.\n'
         'Use /orders to view all active orders.\n'
         'Use /myorders to manage your own orders.'
     )
 
-def sell_start(update: Update, context: CallbackContext) -> int:
+async def sell_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the /sell conversation by asking for the asset to offer."""
     keyboard = [
         [InlineKeyboardButton("Million Toman", callback_data="Million Toman")],
@@ -45,18 +45,18 @@ def sell_start(update: Update, context: CallbackContext) -> int:
         [InlineKeyboardButton("Dirty USD", callback_data="Dirty USD")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text('Please choose the asset you are OFFERING:', reply_markup=reply_markup)
+    await update.message.reply_text('Please choose the asset you are OFFERING:', reply_markup=reply_markup)
     return OFFERED_ASSET
 
-def received_offered_asset(update: Update, context: CallbackContext) -> int:
+async def received_offered_asset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the offered asset and asks for its amount."""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     context.user_data['asset_offered'] = query.data
-    query.edit_message_text(text=f"You are offering: {query.data}.\n\nPlease enter the AMOUNT you are offering:")
+    await query.edit_message_text(text=f"You are offering: {query.data}.\n\nPlease enter the AMOUNT you are offering:")
     return OFFERED_AMOUNT
 
-def received_offered_amount(update: Update, context: CallbackContext) -> int:
+async def received_offered_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the offered amount and asks for the requested asset."""
     try:
         amount = float(update.message.text)
@@ -68,33 +68,33 @@ def received_offered_amount(update: Update, context: CallbackContext) -> int:
             [InlineKeyboardButton("Dirty USD", callback_data="Dirty USD")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text('Now, please choose the asset you are REQUESTING:', reply_markup=reply_markup)
+        await update.message.reply_text('Now, please choose the asset you are REQUESTING:', reply_markup=reply_markup)
         return REQUESTED_ASSET
     except ValueError:
-        update.message.reply_text('Invalid number. Please enter a positive amount.')
+        await update.message.reply_text('Invalid number. Please enter a positive amount.')
         return OFFERED_AMOUNT
 
-def received_requested_asset(update: Update, context: CallbackContext) -> int:
+async def received_requested_asset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the requested asset and asks for its amount."""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     if query.data == context.user_data['asset_offered']:
-        query.edit_message_text("The requested asset cannot be the same as the offered asset. Please start over with /sell.")
+        await query.edit_message_text("The requested asset cannot be the same as the offered asset. Please start over with /sell.")
         return ConversationHandler.END
         
     context.user_data['asset_requested'] = query.data
-    query.edit_message_text(text=f"You are requesting: {query.data}.\n\nPlease enter the AMOUNT you are requesting:")
+    await query.edit_message_text(text=f"You are requesting: {query.data}.\n\nPlease enter the AMOUNT you are requesting:")
     return REQUESTED_AMOUNT
 
-def received_requested_amount_and_save(update: Update, context: CallbackContext) -> int:
+async def received_requested_amount_and_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Saves the complete order to the database."""
     try:
         amount = float(update.message.text)
         if amount <= 0: raise ValueError
         context.user_data['amount_requested'] = amount
     except ValueError:
-        update.message.reply_text('Invalid number. Please enter a positive amount.')
+        await update.message.reply_text('Invalid number. Please enter a positive amount.')
         return REQUESTED_AMOUNT
 
     # All data collected, now save to DB
@@ -115,11 +115,11 @@ def received_requested_amount_and_save(update: Update, context: CallbackContext)
             f"🔹 You Offer: {ud['amount_offered']:,.0f} {ud['asset_offered']}\n"
             f"🔸 You Request: {ud['amount_requested']:,.0f} {ud['asset_requested']}"
         )
-        update.message.reply_text(final_message)
+        await update.message.reply_text(final_message)
         
     except Exception as e:
         logging.error(f"DB Error on order save: {e}")
-        update.message.reply_text("An error occurred. Could not save the order.")
+        await update.message.reply_text("An error occurred. Could not save the order.")
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
@@ -127,7 +127,7 @@ def received_requested_amount_and_save(update: Update, context: CallbackContext)
 
     return ConversationHandler.END
 
-def list_orders(update: Update, context: CallbackContext) -> None:
+async def list_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Shows asset selection menu for filtering orders."""
     keyboard = [
         [InlineKeyboardButton("Million Toman", callback_data="filter_Million Toman")],
@@ -136,9 +136,9 @@ def list_orders(update: Update, context: CallbackContext) -> None:
         [InlineKeyboardButton("All Orders", callback_data="filter_All")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text('Please choose which asset you want to see offers for:', reply_markup=reply_markup)
+    await update.message.reply_text('Please choose which asset you want to see offers for:', reply_markup=reply_markup)
 
-def show_filtered_orders(query, asset_filter):
+async def show_filtered_orders(query, asset_filter, context):
     """Shows orders filtered by asset type."""
     conn = get_db_connection()
     cur = conn.cursor()
@@ -156,12 +156,12 @@ def show_filtered_orders(query, asset_filter):
 
     if not orders:
         if asset_filter == "All":
-            query.edit_message_text('There are currently no active orders.')
+            await query.edit_message_text('There are currently no active orders.')
         else:
-            query.edit_message_text(f'There are currently no orders offering {asset_filter}.')
+            await query.edit_message_text(f'There are currently no orders offering {asset_filter}.')
         return
 
-    query.edit_message_text(title)
+    await query.edit_message_text(title)
     for order in orders:
         order_id, amount_off, asset_off, amount_req, asset_req = order
         text = (
@@ -170,9 +170,14 @@ def show_filtered_orders(query, asset_filter):
             f"🔸 **Requesting:** `{amount_req:,.0f} {asset_req}`"
         )
         keyboard = [[InlineKeyboardButton("I want this deal", callback_data=f"buy_{order_id}")]]
-        query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
 
-def my_orders(update: Update, context: CallbackContext) -> None:
+async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lists the user's own active orders and provides an option to delete them."""
     user_id = update.effective_user.id
     conn = get_db_connection()
@@ -183,10 +188,10 @@ def my_orders(update: Update, context: CallbackContext) -> None:
     conn.close()
 
     if not orders:
-        update.message.reply_text("You don't have any active orders.")
+        await update.message.reply_text("You don't have any active orders.")
         return
 
-    update.message.reply_text("--- Your Active Orders ---")
+    await update.message.reply_text("--- Your Active Orders ---")
     for order in orders:
         order_id, amount_off, asset_off, amount_req, asset_req = order
         text = (
@@ -195,19 +200,19 @@ def my_orders(update: Update, context: CallbackContext) -> None:
             f"🔸 **Requesting:** `{amount_req:,.0f} {asset_req}`"
         )
         keyboard = [[InlineKeyboardButton("❌ Delete this Order", callback_data=f"delete_{order_id}")]]
-        update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-def handle_button_clicks(update: Update, context: CallbackContext) -> None:
+async def handle_button_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles all button clicks (buy, confirm, reject, delete, filter)."""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     action, data = query.data.split('_', 1)
     
     if action == "filter":
         # Handle asset filtering for orders
         asset_filter = data
-        show_filtered_orders(query, asset_filter)
+        await show_filtered_orders(query, asset_filter, context)
         return
     
     conn = get_db_connection()
@@ -223,20 +228,11 @@ def handle_button_clicks(update: Update, context: CallbackContext) -> None:
         conn.commit()
         
         if deleted_order:
-            query.edit_message_text(f"✅ Order #{order_id} has been successfully deleted.")
+            await query.edit_message_text(f"✅ Order #{order_id} has been successfully deleted.")
         else:
-            query.edit_message_text("Error: Order not found or you don't have permission to delete it.")
+            await query.edit_message_text("Error: Order not found or you don't have permission to delete it.")
 
     elif action == "buy":
-        # ... [The rest of the logic for buy, confirm, reject is very similar and has been omitted for brevity,
-        # but the full code block will contain it] ...
-        pass # Placeholder for brevity, the full code has the logic
-
-    # The full logic for buy/confirm/reject is included in the complete code.
-    # It's similar to the previous version but adapted for the new table structure.
-
-    # [The full implementation of buy, confirm, reject actions follows]
-    if action == "buy":
         order_id = int(data)
         buyer = query.from_user
         
@@ -256,8 +252,8 @@ def handle_button_clicks(update: Update, context: CallbackContext) -> None:
                 InlineKeyboardButton("✅ Confirm", callback_data=f"confirm_{order_id}_{buyer.id}"),
                 InlineKeyboardButton("❌ Reject", callback_data=f"reject_{order_id}_{buyer.id}")
             ]]
-            context.bot.send_message(seller_id, text_to_seller, reply_markup=InlineKeyboardMarkup(keyboard))
-            query.edit_message_text(
+            await context.bot.send_message(seller_id, text_to_seller, reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(
                 f"✅ Your purchase request has been sent!\n\n"
                 f"📋 Order #{order_id}\n"
                 f"🔹 You want: {ao:,.0f} {aso}\n"
@@ -266,7 +262,7 @@ def handle_button_clicks(update: Update, context: CallbackContext) -> None:
                 f"You will be notified as soon as they respond."
             )
         else:
-            query.edit_message_text("❌ This order is no longer available.")
+            await query.edit_message_text("❌ This order is no longer available.")
 
     elif action == "confirm":
         order_id, buyer_id = map(int, data.split('_'))
@@ -277,27 +273,27 @@ def handle_button_clicks(update: Update, context: CallbackContext) -> None:
         if seller_username_tuple:
             seller_username = seller_username_tuple[0]
             conn.commit()
-            buyer_info = context.bot.get_chat(buyer_id)
-            query.edit_message_text(f"✅ Deal confirmed. This order is now closed.")
-            context.bot.send_message(query.from_user.id, f"👤 Buyer's Username: @{buyer_info.username}")
-            context.bot.send_message(buyer_id, f"✅ The seller has confirmed your deal.\n👤 Seller's Username: {seller_username}")
+            buyer_info = await context.bot.get_chat(buyer_id)
+            await query.edit_message_text(f"✅ Deal confirmed. This order is now closed.")
+            await context.bot.send_message(query.from_user.id, f"👤 Buyer's Username: @{buyer_info.username}")
+            await context.bot.send_message(buyer_id, f"✅ The seller has confirmed your deal.\n👤 Seller's Username: {seller_username}")
         else:
             conn.rollback()
-            query.edit_message_text("Error: Order could not be confirmed.")
+            await query.edit_message_text("Error: Order could not be confirmed.")
 
     elif action == "reject":
         order_id, buyer_id = map(int, data.split('_'))
         cur.execute("UPDATE orders SET status = 'active' WHERE id = %s", (order_id,))
         conn.commit()
-        query.edit_message_text("❌ Request rejected. Your order is active again.")
-        context.bot.send_message(buyer_id, f"❌ The seller has rejected your request for order #{order_id}.")
+        await query.edit_message_text("❌ Request rejected. Your order is active again.")
+        await context.bot.send_message(buyer_id, f"❌ The seller has rejected your request for order #{order_id}.")
 
     cur.close()
     conn.close()
 
-def cancel(update: Update, context: CallbackContext) -> int:
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
-    update.message.reply_text('Operation cancelled.')
+    await update.message.reply_text('Operation cancelled.')
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -306,31 +302,35 @@ def cancel(update: Update, context: CallbackContext) -> int:
 def main() -> None:
     pass
 
-def setup_handlers(dispatcher):
+def setup_handlers(application):
     """Setup all handlers for the bot"""
     sell_conv_handler = ConversationHandler(
         entry_points=[CommandHandler('sell', sell_start)],
         states={
             OFFERED_ASSET: [CallbackQueryHandler(received_offered_asset)],
-            OFFERED_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, received_offered_amount)],
+            OFFERED_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_offered_amount)],
             REQUESTED_ASSET: [CallbackQueryHandler(received_requested_asset)],
-            REQUESTED_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, received_requested_amount_and_save)],
+            REQUESTED_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_requested_amount_and_save)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(sell_conv_handler)
-    dispatcher.add_handler(CommandHandler("orders", list_orders))
-    dispatcher.add_handler(CommandHandler("myorders", my_orders))
-    dispatcher.add_handler(CallbackQueryHandler(handle_button_clicks))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(sell_conv_handler)
+    application.add_handler(CommandHandler("orders", list_orders))
+    application.add_handler(CommandHandler("myorders", my_orders))
+    application.add_handler(CallbackQueryHandler(handle_button_clicks))
 
 if "VERCEL" not in os.environ:
     # Local development mode
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    updater = Updater(os.getenv("BOT_TOKEN"))
-    dispatcher = updater.dispatcher
-    setup_handlers(dispatcher)
-    print("Bot is polling locally...")
-    updater.start_polling()
-    updater.idle()
+    import asyncio
+    
+    async def run_bot():
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        application = Application.builder().token(os.getenv("BOT_TOKEN")).build()
+        setup_handlers(application)
+        print("Bot is polling locally...")
+        await application.run_polling()
+    
+    if __name__ == "__main__":
+        asyncio.run(run_bot())

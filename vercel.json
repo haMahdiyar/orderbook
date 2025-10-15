@@ -1,7 +1,16 @@
 {
   "functions": {
     "api/*.py": {
-      "runtime": "python3.9"
+      "runtime": "python3.11"
     }
+  },
+  "build": {
+    "env": {
+      "PYTHONPATH": "."
+    }
+  },
+  "env": {
+    "BOT_TOKEN": "@bot_token",
+    "DATABASE_URL": "@database_url"
   }
 }
