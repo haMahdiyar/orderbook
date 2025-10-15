@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "functions": {
+    "api/*.py": {
+      "maxDuration": 60
+    }
+  },
+  "build": {
+    "env": {
+      "PYTHONPATH": "."
+    }
+  },
+  "env": {
+    "BOT_TOKEN": "@bot_token",
+    "DATABASE_URL": "@database_url"
+  }
+}

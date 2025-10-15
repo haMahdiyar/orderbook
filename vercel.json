@@ -1,17 +1,14 @@
 {
-  "version": 2,
-  "functions": {
-    "api/*.py": {
-      "maxDuration": 60
+  "builds": [
+    {
+      "src": "bot.py",
+      "use": "@vercel/python"
     }
-  },
-  "build": {
-    "env": {
-      "PYTHONPATH": "."
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "bot.py"
     }
-  },
-  "env": {
-    "BOT_TOKEN": "@bot_token",
-    "DATABASE_URL": "@database_url"
-  }
+  ]
 }
